@@ -8,38 +8,43 @@ from zope.interface import implementer
 from twisted.internet import defer
 from twisted.mail.imap4 import LOGINCredentials, PLAINCredentials
 from twisted.cred.portal import IRealm
+from twisted.application import service
+from twisted.internet import reactor
 
 
 @implementer(smtp.IMessageDelivery)
 class ConsoleMessageDelivery:
+    def __init__(self, domains=None, storage_path=None):
+        self.domains = domains or []
+        self.storage_path = storage_path
+
     def receivedHeader(self, helo, origin, recipients):
         return "Received: ConsoleMessageDelivery"
 
     def validateFrom(self, helo, origin):
-        # Acepta todas las direcciones
         return origin
 
     def validateTo(self, user):
-        # Convertir la dirección completa a cadena
-        # Se asume que user.dest tiene una representación que contiene '@'
+        print(self.domains)
         address = str(user.dest)
         try:
             local_part, recipient_domain = address.split('@')
+            print(recipient_domain)
         except ValueError:
-            # Si no se puede separar en dos partes, se rechaza la dirección
             raise smtp.SMTPBadRcpt(user)
 
-        # Verifica si el dominio está en la lista de dominios permitidos
         if recipient_domain not in self.domains:
             raise smtp.SMTPBadRcpt(user)
 
-        # Si el dominio es válido, devuelve una función que crea un mensaje
-        return lambda: ConsoleMessage()
+        return lambda: ConsoleMessage(self.storage_path, local_part, recipient_domain)
 
 
 @implementer(smtp.IMessage)
 class ConsoleMessage:
-    def __init__(self):
+    def __init__(self, storage_path, local_part, recipient_domain):
+        self.storage_path = storage_path
+        self.local_part = local_part
+        self.recipient_domain = recipient_domain
         self.lines = []
 
     def lineReceived(self, line):
@@ -50,11 +55,19 @@ class ConsoleMessage:
     def eomReceived(self):
         print("Nuevo mensaje recibido:")
         print("\n".join(self.lines))
+
+        import os, time
+        filename = f"{self.local_part}_{int(time.time())}.txt"
+        directory_path = os.path.join(self.storage_path, self.recipient_domain, self.local_part)
+        os.makedirs(directory_path, exist_ok=True)
+        filepath = os.path.join(directory_path, filename)
+
+        with open(filepath, "w") as f:
+            f.write("\n".join(self.lines))
+        print(f"Correo guardado en: {filepath}")
+
         self.lines = None
         return defer.succeed(None)
-
-    def connectionLost(self):
-        self.lines = None
 
 
 class ConsoleSMTPFactory(smtp.SMTPFactory):
@@ -63,7 +76,7 @@ class ConsoleSMTPFactory(smtp.SMTPFactory):
     def __init__(self, portal, domains, mail_storage, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.portal = portal
-        self.delivery = ConsoleMessageDelivery()
+        self.delivery = ConsoleMessageDelivery(domains, mail_storage)
         self.domains = domains
         self.mail_storage = mail_storage
 
@@ -72,7 +85,6 @@ class ConsoleSMTPFactory(smtp.SMTPFactory):
         p.delivery = self.delivery
         p.challengers = {"LOGIN": LOGINCredentials, "PLAIN": PLAINCredentials}
         return p
-
 
 
 @implementer(IRealm)
@@ -84,17 +96,13 @@ class SimpleRealm:
 
 
 def main(domains, mail_storage, port):
-    # Configuración del portal y el checker para la autenticación
     portal = Portal(SimpleRealm())
     checker = InMemoryUsernamePasswordDatabaseDontUse()
     checker.addUser("guest", "password")
     portal.registerChecker(checker)
 
-    # Crear la aplicación Twisted
     app = service.Application("Console SMTP Server")
-    # Instanciar el factory pasando los parámetros leídos
     factory = ConsoleSMTPFactory(portal, domains, mail_storage)
-    # Configurar el servidor TCP en el puerto indicado
     internet.TCPServer(port, factory).setServiceParent(app)
     return app
 
@@ -110,8 +118,6 @@ if __name__ == '__main__':
                         help="Puerto en el que se ejecutará el servidor SMTP (default: 2500).")
 
     args = parser.parse_args()
-
-    # Convertir la cadena de dominios en una lista
     domains = [dom.strip() for dom in args.domains.split(',')]
     mail_storage = args.mail_storage
     port = args.port
@@ -121,16 +127,8 @@ if __name__ == '__main__':
     print("Almacenamiento:", mail_storage)
     print("Puerto:", port)
 
-    # Inicia la aplicación de Twisted
     application = main(domains, mail_storage, port)
-
-    from twisted.application import service
-    from twisted.internet import reactor
-
-    # 1. Arranca el servicio
     service.IService(application).startService()
-
-    # 2. Arranca el reactor
     reactor.run()
 
 
