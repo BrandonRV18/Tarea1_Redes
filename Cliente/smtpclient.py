@@ -81,7 +81,7 @@ def main():
         mailData = message_template.format(name=recipient['name'])
         factory = SMTPClientFactory(mailFrom, mailTo, mailData)
         deferreds.append(factory.deferred)
-        smtpService = internet.TCPClient(args.host, 2500, factory)
+        smtpService = internet.TCPClient(args.host, 2525, factory)
         smtpService.startService()
 
     for d in deferreds:
