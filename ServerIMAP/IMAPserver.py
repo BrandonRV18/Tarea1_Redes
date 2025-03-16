@@ -5,18 +5,9 @@ from twisted.internet import reactor, protocol
 from twisted.mail import imap4
 from twisted.cred import portal, credentials, error
 from twisted.internet.defer import succeed, fail
-try:
-    from twisted.cred.interfaces import ICredentialsChecker
-except ImportError:
-    try:
-        from twisted.cred.checkers import ICredentialsChecker
-    except ImportError:
-        from zope.interface import Interface
-        class ICredentialsChecker(Interface):
-            pass
+from twisted.cred.checkers import ICredentialsChecker
 from zope.interface import implementer
 from email.header import make_header, decode_header
-from email.parser import BytesParser
 
 Ruta_CSV = "/home/brandon/Documentos/UltimoSemestre/redes/CarpetasDelServer/Usuarios.csv"
 
@@ -32,7 +23,7 @@ def cargar_usuarios_desde_csv():
                     user, password = fila[0].strip(), fila[1].strip()
                     usuarios[user] = password
     except FileNotFoundError:
-        print(f"⚠️ No se encontró el archivo CSV en: {Ruta_CSV}. Se usará autenticación vacía.")
+        print(f"No se encontró el archivo CSV en: {Ruta_CSV}. Se usará autenticación vacía.")
     return usuarios
 
 @implementer(ICredentialsChecker)
@@ -101,7 +92,7 @@ class IMAPMailbox:
     def load_messages(self):
         messages = []
         if not os.path.exists(self.path):
-            print(f"⚠️ La ruta '{self.path}' no existe. Creando carpeta...", flush=True)
+            print(f"La ruta '{self.path}' no existe. Creando carpeta...", flush=True)
             os.makedirs(self.path)
         for i, filename in enumerate(sorted(os.listdir(self.path))):
             filepath = os.path.join(self.path, filename)
@@ -115,7 +106,6 @@ class IMAPMailbox:
         return messages
 
     def refresh(self):
-        print("🔄 Refrescando buzón...", flush=True)
         self.messages = self.load_messages()
 
     def addListener(self, listener):
@@ -181,20 +171,11 @@ class IMAPMessage:
     def getBodyFile(self):
         from io import BytesIO
         from email import message_from_bytes
-        import quopri
         msg = message_from_bytes(self.content)
-        payload = msg.get_payload(decode=True)
-        encoding = msg.get_content_charset("utf-8")
-        try:
-            if msg["Content-Transfer-Encoding"] and "quoted-printable" in msg["Content-Transfer-Encoding"].lower():
-                decoded_payload = quopri.decodestring(payload).decode(encoding)
-            else:
-                decoded_payload = payload.decode(encoding)
-        except (UnicodeDecodeError, AttributeError):
-            decoded_payload = payload.decode("utf-8", errors="replace")
-        headers = self.content.split(b"\n\n", 1)[0].decode("utf-8", errors="replace")
-        full_message = f"{headers}\n\n{decoded_payload}".encode("utf-8")
-        return BytesIO(full_message)
+        body_bytes = msg.get_payload(decode=True) or b''
+        body_str = body_bytes.decode(msg.get_content_charset('utf-8'), errors='replace')
+        headers = self.content.split(b"\n\n", 1)[0]
+        return BytesIO(headers + b"\n\n" + body_str.encode('utf-8'))
 
     def getFlags(self):
         return []
@@ -218,11 +199,11 @@ class IMAPUserRealm:
             if "@" in avatarId:
                 local_part, domain = avatarId.split("@")
             else:
-                print(f"⚠️ ERROR: Usuario inválido (falta dominio): {avatarId}", flush=True)
+                print(f"ERROR: Usuario inválido (falta dominio): {avatarId}", flush=True)
                 raise credentials.UnauthorizedLogin("Formato de usuario incorrecto")
             user_maildir = os.path.join(self.mail_storage, domain, local_part)
-            print(f"📂 Ruta de correos para {avatarId}: {user_maildir}", flush=True)
-            print(f"✅ Login exitoso para {avatarId}", flush=True)
+            print(f"Ruta de correos para {avatarId}: {user_maildir}", flush=True)
+            print(f"Login exitoso para {avatarId}", flush=True)
             return imap4.IAccount, IMAPUserAccount(avatarId, user_maildir), lambda: None
         raise NotImplementedError()
 
@@ -250,7 +231,7 @@ def main():
 
     factory = IMAPServerFactory(p)
     reactor.listenTCP(args.port, factory)
-    print(f"✅ Servidor IMAP corriendo en el puerto {args.port} con almacenamiento en '{args.storage}'", flush=True)
+    print(f"Servidor IMAP corriendo en el puerto {args.port} con almacenamiento en '{args.storage}'", flush=True)
     reactor.run()
 
 if __name__ == '__main__':
