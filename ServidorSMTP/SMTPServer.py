@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 from twisted.application import internet, service
 from twisted.cred.portal import Portal
@@ -57,7 +56,7 @@ class ConsoleMessage:
         print("\n".join(self.lines))
 
         import os, time
-        filename = f"{self.local_part}_{int(time.time())}.txt"
+        filename = f"{self.local_part}_{int(time.time())}.eml"
         directory_path = os.path.join(self.storage_path, self.recipient_domain, self.local_part)
         os.makedirs(directory_path, exist_ok=True)
         filepath = os.path.join(directory_path, filename)
@@ -83,7 +82,10 @@ class ConsoleSMTPFactory(smtp.SMTPFactory):
     def buildProtocol(self, addr):
         p = super().buildProtocol(addr)
         p.delivery = self.delivery
-        p.challengers = {"LOGIN": LOGINCredentials, "PLAIN": PLAINCredentials}
+        p.challengers = {
+            b"LOGIN": LOGINCredentials,
+            b"PLAIN": PLAINCredentials
+        }
         return p
 
 
@@ -109,7 +111,7 @@ def main(domains, mail_storage, port):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Servidor SMTP usando Twisted")
+    parser = argparse.ArgumentParser(description="Servidor SMTP")
     parser.add_argument("-d", "--domains", required=True,
                         help="Dominios aceptados (separados por comas, sin espacios).")
     parser.add_argument("-s", "--mail-storage", required=True,
@@ -130,5 +132,3 @@ if __name__ == '__main__':
     application = main(domains, mail_storage, port)
     service.IService(application).startService()
     reactor.run()
-
-
