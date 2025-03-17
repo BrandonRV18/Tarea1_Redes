@@ -8,68 +8,55 @@ from twisted.internet.defer import succeed, fail
 from twisted.cred.checkers import ICredentialsChecker
 from zope.interface import implementer
 from email.header import make_header, decode_header
+from email import message_from_bytes
+from email.header import Header
+from io import BytesIO
 
-Ruta_CSV = "/home/brandon/Documentos/UltimoSemestre/redes/CarpetasDelServer/Usuarios.csv"
-
-def cargar_usuarios_desde_csv():
-    usuarios = {}
-    try:
-        with open(Ruta_CSV, newline='', encoding='utf-8') as archivo:
-            lector = csv.reader(archivo)
-            next(lector)
-            for fila in lector:
-                if len(fila) >= 2:
-                    print(fila)
-                    user, password = fila[0].strip(), fila[1].strip()
-                    usuarios[user] = password
-    except FileNotFoundError:
-        print(f"No se encontró el archivo CSV en: {Ruta_CSV}. Se usará autenticación vacía.")
-    return usuarios
+UsersPathCSV = "/home/brandon/Documentos/UltimoSemestre/redes/CarpetasDelServer/Usuarios.csv"
 
 @implementer(ICredentialsChecker)
-class CSVCredentialsChecker(object):
+class CredentialsCheckerCSV(object):
+
     credentialInterfaces = (credentials.IUsernamePassword,)
 
     def __init__(self, csv_path):
         self.creds = {}
-        self.load_csv(csv_path)
+        self.loadCsv(csv_path)
 
-    def load_csv(self, csv_path):
+    def loadCsv(self, csv_path):
         try:
             with open(csv_path, newline='', encoding='utf-8') as archivo:
                 lector = csv.reader(archivo)
                 next(lector)
                 for fila in lector:
-                    if len(fila) >= 2:
-                        username = fila[0].strip()
-                        password = fila[1].strip()
-                        self.creds[username] = password
-            print("DEBUG - Credenciales cargadas desde CSV:", self.creds, flush=True)
+                    username = fila[0].strip()
+                    password = fila[1].strip()
+                    self.creds[username] = password
+            print("Credenciales cargadas desde CSV:", self.creds)
         except FileNotFoundError:
-            print(f"DEBUG - No se encontró el archivo CSV en: {csv_path}", flush=True)
+            print(f"No se encontró el archivo CSV en: {csv_path}")
 
     def requestAvatarId(self, credentials_obj):
-        print("DEBUG - In CSVCredentialsChecker.requestAvatarId", flush=True)
+
         username = (credentials_obj.username.decode('utf-8')
-                    if isinstance(credentials_obj.username, bytes)
-                    else credentials_obj.username)
+        if isinstance(credentials_obj.username, bytes)
+        else credentials_obj.username)
+
         password = (credentials_obj.password.decode('utf-8')
-                    if isinstance(credentials_obj.password, bytes)
-                    else credentials_obj.password)
-        print("DEBUG - Received credentials: username =", username, "password =", password, flush=True)
+        if isinstance(credentials_obj.password, bytes)
+        else credentials_obj.password)
+
         if username in self.creds and self.creds[username] == password:
-            print("DEBUG - Autenticación exitosa para:", username, flush=True)
             return succeed(username)
         else:
-            print("DEBUG - Autenticación fallida para:", username, flush=True)
             return fail(error.UnauthorizedLogin("Invalid login"))
 
 @implementer(imap4.IAccount)
 class IMAPUserAccount:
-    def __init__(self, username, maildir):
+    def __init__(self, username, mailPath):
         self.username = username
-        self.maildir = maildir
-        self.mailbox = IMAPMailbox(maildir)
+        self.mailPath = mailPath
+        self.mailbox = IMAPMailbox(mailPath)
 
     def listMailboxes(self, ref="", wildcard="*"):
         return {"INBOX": self.mailbox}
@@ -87,26 +74,23 @@ class IMAPUserAccount:
 class IMAPMailbox:
     def __init__(self, path):
         self.path = path
-        self.messages = self.load_messages()
+        self.messages = self.loadMessages()
 
-    def load_messages(self):
+    def loadMessages(self):
         messages = []
         if not os.path.exists(self.path):
-            print(f"La ruta '{self.path}' no existe. Creando carpeta...", flush=True)
-            os.makedirs(self.path)
+            return messages
+
         for i, filename in enumerate(sorted(os.listdir(self.path))):
             filepath = os.path.join(self.path, filename)
             if os.path.isfile(filepath):
                 with open(filepath, "rb") as f:
                     content = f.read()
-                    if b"Content-Type" not in content:
-                        content = (b"Content-Type: text/plain; charset=utf-8\n"
-                                   b"Content-Transfer-Encoding: quoted-printable\n\n") + content
                     messages.append(IMAPMessage(content, uid=i + 1))
         return messages
 
     def refresh(self):
-        self.messages = self.load_messages()
+        self.messages = self.loadMessages()
 
     def addListener(self, listener):
         pass
@@ -149,8 +133,7 @@ class IMAPMessage:
         self.uid = uid
 
     def getHeaders(self, negate, *names):
-        from email import message_from_bytes
-        from email.header import Header
+
         msg = message_from_bytes(self.content)
         headers = {}
         if not names:
@@ -164,13 +147,7 @@ class IMAPMessage:
                     headers[header_name] = str(make_header(decode_header(msg[header_name])))
         return headers
 
-    def decode_mime_header(self, raw_header):
-        hdr = make_header(decode_header(raw_header))
-        return hdr.encode()
-
     def getBodyFile(self):
-        from io import BytesIO
-        from email import message_from_bytes
         msg = message_from_bytes(self.content)
         body_bytes = msg.get_payload(decode=True) or b''
         body_str = body_bytes.decode(msg.get_content_charset('utf-8'), errors='replace')
@@ -199,13 +176,12 @@ class IMAPUserRealm:
             if "@" in avatarId:
                 local_part, domain = avatarId.split("@")
             else:
-                print(f"ERROR: Usuario inválido (falta dominio): {avatarId}", flush=True)
                 raise credentials.UnauthorizedLogin("Formato de usuario incorrecto")
+
             user_maildir = os.path.join(self.mail_storage, domain, local_part)
-            print(f"Ruta de correos para {avatarId}: {user_maildir}", flush=True)
-            print(f"Login exitoso para {avatarId}", flush=True)
             return imap4.IAccount, IMAPUserAccount(avatarId, user_maildir), lambda: None
         raise NotImplementedError()
+
 
 class IMAPServerProtocol(imap4.IMAP4Server):
     def __init__(self, portal):
@@ -225,7 +201,7 @@ def main():
     parser.add_argument("-p", "--port", type=int, required=True, help="Puerto donde correrá el servidor IMAP.")
     args = parser.parse_args()
 
-    checker = CSVCredentialsChecker(Ruta_CSV)
+    checker = CredentialsCheckerCSV(UsersPathCSV)
     realm = IMAPUserRealm(args.storage)
     p = portal.Portal(realm, [checker])
 

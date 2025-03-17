@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 from __future__ import print_function
 import argparse
 import csv
@@ -9,7 +8,7 @@ from twisted.application import internet, service
 from twisted.mail import smtp, relaymanager
 from email.utils import formatdate
 
-class SMTPTutorialClient(smtp.ESMTPClient):
+class SMTPClient(smtp.ESMTPClient):
     def __init__(self, mailFrom, mailTo, mailData, *args, **kwargs):
         smtp.ESMTPClient.__init__(self, *args, **kwargs)
         self.mailFrom = mailFrom
@@ -35,7 +34,6 @@ class SMTPTutorialClient(smtp.ESMTPClient):
         return io.BytesIO(msg.as_bytes())
 
     def sentMail(self, code, resp, numOk, addresses, log):
-        print("Mensaje corrrectamente enviado a", self.mailTo)
         self.factory.deferred.callback(None)
 
 class SMTPClientFactory(protocol.ClientFactory):
@@ -46,8 +44,8 @@ class SMTPClientFactory(protocol.ClientFactory):
         self.deferred = defer.Deferred()
 
     def buildProtocol(self, addr):
-        p = SMTPTutorialClient(self.mailFrom, self.mailTo, self.mailData,
-                                secret=None, identity='example.com')
+        p = SMTPClient(self.mailFrom, self.mailTo, self.mailData,
+                                secret=None, identity='Identity')
         p.factory = self
         return p
 
@@ -81,7 +79,7 @@ def main():
         mailData = message_template.format(name=recipient['name'])
         factory = SMTPClientFactory(mailFrom, mailTo, mailData)
         deferreds.append(factory.deferred)
-        smtpService = internet.TCPClient(args.host, 2525, factory)
+        smtpService = internet.TCPClient(args.host, 2500, factory)
         smtpService.startService()
 
     for d in deferreds:

@@ -9,12 +9,12 @@ from twisted.mail.imap4 import LOGINCredentials, PLAINCredentials
 from twisted.cred.portal import IRealm
 from twisted.application import service
 from twisted.internet import reactor
-
+import os, time
 
 @implementer(smtp.IMessageDelivery)
 class ConsoleMessageDelivery:
     def __init__(self, domains=None, storage_path=None):
-        self.domains = domains or []
+        self.domains = domains
         self.storage_path = storage_path
 
     def receivedHeader(self, helo, origin, recipients):
@@ -24,11 +24,9 @@ class ConsoleMessageDelivery:
         return origin
 
     def validateTo(self, user):
-        print(self.domains)
         address = str(user.dest)
         try:
             local_part, recipient_domain = address.split('@')
-            print(recipient_domain)
         except ValueError:
             raise smtp.SMTPBadRcpt(user)
 
@@ -52,10 +50,8 @@ class ConsoleMessage:
         self.lines.append(line)
 
     def eomReceived(self):
-        print("Nuevo mensaje recibido:")
-        print("\n".join(self.lines))
 
-        import os, time
+
         filename = f"{self.local_part}_{int(time.time())}.eml"
         directory_path = os.path.join(self.storage_path, self.recipient_domain, self.local_part)
         os.makedirs(directory_path, exist_ok=True)
@@ -98,6 +94,7 @@ class SimpleRealm:
 
 
 def main(domains, mail_storage, port):
+
     portal = Portal(SimpleRealm())
     checker = InMemoryUsernamePasswordDatabaseDontUse()
     checker.addUser("guest", "password")
